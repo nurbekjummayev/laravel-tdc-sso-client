@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Nurbekjummayev\LaravelTdcSsoClient\Models;
 
-use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -23,13 +22,6 @@ use Laravel\Passport\Token;
  * @property Carbon|null $created_at
  * @property-read Token|null $accessToken
  */
-#[Fillable([
-    'user_id',
-    'token_id',
-    'event',
-    'ip_address',
-    'user_agent',
-])]
 class SsoAuthLog extends Model
 {
     /**
@@ -41,6 +33,17 @@ class SsoAuthLog extends Model
      * The table associated with the model.
      */
     protected $table = 'sso_auth_logs';
+
+    /**
+     * @var list<string>
+     */
+    protected $fillable = [
+        'user_id',
+        'token_id',
+        'event',
+        'ip_address',
+        'user_agent',
+    ];
 
     /**
      * The Passport access token involved in this authentication event.

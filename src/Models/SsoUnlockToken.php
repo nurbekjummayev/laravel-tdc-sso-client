@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Nurbekjummayev\LaravelTdcSsoClient\Models;
 
-use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
@@ -19,15 +18,19 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable([
-    'user_id',
-    'token_hash',
-    'expires_at',
-    'revoked_at',
-])]
 class SsoUnlockToken extends Model
 {
     protected $table = 'sso_unlock_tokens';
+
+    /**
+     * @var list<string>
+     */
+    protected $fillable = [
+        'user_id',
+        'token_hash',
+        'expires_at',
+        'revoked_at',
+    ];
 
     /**
      * @return array<string, string>
