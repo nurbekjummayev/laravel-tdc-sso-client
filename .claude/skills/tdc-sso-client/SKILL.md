@@ -92,24 +92,21 @@ there is no tag yet, either tag a release or, temporarily, require `"dev-main"` 
 
 ## One-time setup in the host app
 
-The package ships only its OWN tables (`sso_auth_logs`, `sso_user_pins`,
+The package ships only its OWN tables (`sso_auth_logs`, `sso_lock_pins`,
 `sso_unlock_tokens`). It does **not** bundle Passport's `oauth_*` tables — those are
 Passport's. So:
 
 ```bash
-# Passport's schema (publish then migrate):
-php artisan vendor:publish --tag=passport-migrations
-
-php artisan vendor:publish --tag=tdc-sso-client-config   # publishes config/sso.php
-php artisan migrate
-
-# Generate Passport keys + the personal access client (idempotent):
-php artisan sso:install
+php artisan vendor:publish --tag=tdc-sso-client-config   # optional: customise config/sso.php
+php artisan sso:install                                   # does everything below
 ```
 
-`sso:install` is the package's own command. It runs `passport:keys` and creates the
-`personal_access` client in `oauth_clients` (skips if one already exists). Pass `--force`
-to regenerate keys. It fails clearly if `oauth_clients` is missing → run `migrate` first.
+`sso:install` is the package's own command and runs, in order:
+`vendor:publish --tag=passport-migrations` → `migrate` → `passport:keys` → create the
+`personal_access` client in `oauth_clients`. It is idempotent (published migrations and
+keys are kept, the client is created only if absent). In production / non-interactive
+contexts pass `--force` so the embedded `migrate` doesn't block on the confirmation
+prompt: `php artisan sso:install --force`.
 
 ## Host User model (required contract)
 
@@ -215,7 +212,7 @@ The SPA never sees the tokens — the browser carries the cookies automatically.
 
 - Don't store the tokens in `localStorage`/JS — the whole design keeps them httpOnly so
   XSS can't read them. If you find code reading a token in JS, that's a regression.
-- Don't add a `pin_hash` column to `users` — the PIN lives in `sso_user_pins`, and
+- Don't add a `pin_hash` column to `users` — the PIN lives in `sso_lock_pins`, and
   `has_pin` is derived from it (no duplicated flag to drift).
 - Don't re-extend the 12h unlock cap on each unlock — it's an absolute ceiling from login
   by design; sliding it would make sessions immortal.

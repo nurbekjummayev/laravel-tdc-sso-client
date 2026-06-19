@@ -111,7 +111,7 @@ return [
     | PIN
     |--------------------------------------------------------------------------
     |
-    | The screen-lock PIN. Stored hashed in the `sso_user_pins` table (never on
+    | The screen-lock PIN. Stored hashed in the `sso_lock_pins` table (never on
     | the users table). `max_attempts` failed unlocks lock the PIN for
     | `lockout_minutes`, after which a full SSO re-login is required.
     |

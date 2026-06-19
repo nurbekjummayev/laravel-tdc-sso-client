@@ -22,7 +22,7 @@ class SsoServiceProvider extends PackageServiceProvider
     /**
      * Configure the package: name, config file, and migrations.
      *
-     * Ships only the package's OWN tables: sso_auth_logs, sso_user_pins and
+     * Ships only the package's OWN tables: sso_auth_logs, sso_lock_pins and
      * sso_unlock_tokens. The Passport oauth_* tables are NOT bundled — they are
      * Passport's own schema (publish via `php artisan passport:install`). The
      * spatie/permission table is bundled, guarded with Schema::hasTable so it

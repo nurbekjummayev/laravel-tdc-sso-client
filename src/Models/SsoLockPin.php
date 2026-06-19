@@ -21,9 +21,9 @@ use Illuminate\Support\Facades\Date;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-class SsoUserPin extends Model
+class SsoLockPin extends Model
 {
-    protected $table = 'sso_user_pins';
+    protected $table = 'sso_lock_pins';
 
     /**
      * @var list<string>

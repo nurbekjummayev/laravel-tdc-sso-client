@@ -27,23 +27,24 @@ SSO provider token to the browser. It issues its own session to the SPA as two
 ```bash
 composer require nurbekjummayev/laravel-tdc-sso-client
 
-# Passport's own schema (the package does NOT bundle the oauth_* tables):
-php artisan vendor:publish --tag=passport-migrations
-
+# (optional) publish the package config to customise it:
 php artisan vendor:publish --tag=tdc-sso-client-config
-php artisan migrate
 
-# One command: generate Passport keys + the personal access client used to
-# mint SSO session tokens (idempotent):
+# One command does the rest — publishes Passport's migrations, runs migrate,
+# generates Passport keys, and creates the personal access client (idempotent):
 php artisan sso:install
 ```
 
+In production / non-interactive (CI, deploy) contexts, pass `--force` so the
+embedded `migrate` runs without the confirmation prompt:
+`php artisan sso:install --force`.
+
 > **Migrations.** The package ships only its OWN tables: `sso_auth_logs`,
-> `sso_user_pins`, `sso_unlock_tokens`. The Passport `oauth_*` tables are
-> Passport's responsibility — publish them with
-> `php artisan vendor:publish --tag=passport-migrations` (see the steps above).
-> The bundled spatie/permission migration is guarded with `Schema::hasTable(...)`,
-> so it is skipped if the host app already installed it.
+> `sso_lock_pins`, `sso_unlock_tokens`. The Passport `oauth_*` tables are
+> Passport's own schema — `sso:install` publishes them
+> (`vendor:publish --tag=passport-migrations`) and runs `migrate` for you. The
+> bundled spatie/permission migration is guarded with `Schema::hasTable(...)`, so
+> it is skipped if the host app already installed it.
 
 ## Token & lock model
 
@@ -90,7 +91,7 @@ The `/me` response carries `has_pin` so the SPA knows whether to show the
 
 ## PIN
 
-The screen-lock PIN lives in its own `sso_user_pins` table (never on the users
+The screen-lock PIN lives in its own `sso_lock_pins` table (never on the users
 table): a bcrypt hash, when it was set/changed (`created_at` / `updated_at`),
 the last IP / user agent of that set/change, and a failed-attempt counter with
 lockout. PIN set/change events are also written to `sso_auth_logs`.
