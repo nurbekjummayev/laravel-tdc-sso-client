@@ -1,0 +1,167 @@
+# Laravel TDC-SSO Client
+
+[![Tests](https://github.com/nurbekjummayev/laravel-tdc-sso-client/actions/workflows/tests.yml/badge.svg)](https://github.com/nurbekjummayev/laravel-tdc-sso-client/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+A Laravel package implementing **TDC-SSO** login over OAuth2 (Authorization
+Code + PKCE) using the **Backend-for-Frontend (BFF)** pattern, with a
+**cookie-based session, screen-lock, and PIN unlock** flow.
+
+The backend performs the server-to-server token exchange and never exposes the
+SSO provider token to the browser. It issues its own session to the SPA as two
+**httpOnly cookies** — neither is readable by JavaScript:
+
+- **`session_token`** — the short-lived working access token (a Passport
+  personal access token). Killed on screen lock.
+- **`unlock_token`** — a long-lived token (12h hard cap) used together with the
+  user's PIN to re-mint a session token after a lock, without a full re-login.
+
+## Requirements
+
+- PHP 8.2+ · Laravel 12/13
+- [laravel/passport](https://laravel.com/docs/passport) (user model must implement `OAuthenticatable` / use `HasApiTokens`)
+- [spatie/laravel-permission](https://spatie.be/docs/laravel-permission)
+
+## Installation
+
+```bash
+composer require nurbekjummayev/laravel-tdc-sso-client
+
+# Passport's own schema (the package does NOT bundle the oauth_* tables):
+php artisan vendor:publish --tag=passport-migrations
+
+php artisan vendor:publish --tag=tdc-sso-client-config
+php artisan migrate
+
+# One command: generate Passport keys + the personal access client used to
+# mint SSO session tokens (idempotent):
+php artisan sso:install
+```
+
+> **Migrations.** The package ships only its OWN tables: `sso_auth_logs`,
+> `sso_user_pins`, `sso_unlock_tokens`. The Passport `oauth_*` tables are
+> Passport's responsibility — publish them with
+> `php artisan vendor:publish --tag=passport-migrations` (see the steps above).
+> The bundled spatie/permission migration is guarded with `Schema::hasTable(...)`,
+> so it is skipped if the host app already installed it.
+
+## Token & lock model
+
+```
+Login (SSO) ─▶ callback ─▶ Set-Cookie: session_token (short)  +  unlock_token (12h)
+                           Body: { user }  (tokens are NEVER in the body)
+
+Working      ─▶ browser auto-sends session_token cookie; a middleware copies it
+                into the Authorization header so auth:api authenticates.
+
+Lock (idle)  ─▶ frontend locks the screen in real time, calls POST /lock
+                ─▶ session_token revoked + cookie cleared (unlock_token kept)
+
+Unlock (PIN) ─▶ POST /unlock  (unlock_token cookie + PIN)
+                ─▶ PIN verified, unlock_token rotated, new session_token issued
+
+12h cap / wrong-token / idle backstop ─▶ full SSO re-login
+```
+
+The screen-lock **trigger** is the frontend's job (real-time input-activity
+detection). The backend enforces a server-side **idle backstop**: if no request
+arrives within `sso.idle.timeout` minutes, the session token is revoked.
+
+## Routes
+
+Registered under the `api/auth/sso` prefix (configurable via `sso.routes.prefix`):
+
+| Method | URI | Auth | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `redirect` | public | Redirect to the SSO authorize endpoint |
+| `POST` | `callback` | public | Exchange `code`+`state`, set session + unlock cookies |
+| `POST` | `unlock` | unlock cookie + PIN | Re-mint a session token after a lock |
+| `GET` | `me` | session cookie | Current user (includes `has_pin`) |
+| `POST` | `set-pin` | session cookie | Set/change the PIN — body `pin` + `pin_confirmation` (+ `current_pin` to change) |
+| `POST` | `lock` | session cookie | Revoke the session token, clear its cookie |
+| `POST` | `logout` | session cookie | Revoke session + unlock tokens, clear both cookies |
+
+`me`, `set-pin`, `lock`, `logout` run behind: cookie→Bearer injection →
+`auth:api` → idle backstop. `unlock` is intentionally public (the session token
+is dead during a lock) and is gated by the unlock cookie + PIN.
+
+The `/me` response carries `has_pin` so the SPA knows whether to show the
+**set-PIN** screen or the **unlock** screen — no separate `check-pin` call.
+
+## PIN
+
+The screen-lock PIN lives in its own `sso_user_pins` table (never on the users
+table): a bcrypt hash, when it was set/changed (`created_at` / `updated_at`),
+the last IP / user agent of that set/change, and a failed-attempt counter with
+lockout. PIN set/change events are also written to `sso_auth_logs`.
+
+Setting or changing a PIN requires `pin` **and** `pin_confirmation` (they must
+match); changing an existing PIN additionally requires the correct
+`current_pin`. After `sso.pin.max_attempts` failed unlocks the PIN locks for
+`sso.pin.lockout_minutes`.
+
+## Configuration
+
+Provider credentials live in `config/services.php`:
+
+```php
+'sso' => [
+    'base_url'      => env('SSO_BASE_URL', 'https://apply.epauzb.uz'),
+    'client_id'     => env('SSO_CLIENT_ID'),
+    'client_secret' => env('SSO_CLIENT_SECRET'),
+    'redirect_uri'  => env('SSO_REDIRECT_URI'),
+    'scope'         => env('SSO_SCOPE', ''),
+],
+```
+
+Key environment variables (full list documented in `config/sso.php`):
+
+| Env var | Default | Description |
+| --- | --- | --- |
+| `SSO_USER_MODEL` | `App\Models\User` | Model to upsert; must use `HasApiTokens` + spatie `HasRoles` |
+| `SSO_TOKEN_EXPIRY_MINUTES` | `60` | Session token (and cookie) lifetime |
+| `SSO_UNLOCK_TOKEN_TTL` | `720` | Unlock token absolute cap, minutes (12h) |
+| `SSO_SESSION_COOKIE` / `SSO_UNLOCK_COOKIE` | `session_token` / `unlock_token` | Cookie names |
+| `SSO_COOKIE_DOMAIN` | _(host)_ | Cookie domain (e.g. `.td.uz` to share across subdomains) |
+| `SSO_COOKIE_SECURE` | `true` | `Secure` flag (HTTPS only) |
+| `SSO_COOKIE_SAMESITE` | `strict` | `SameSite` (`strict`/`lax` same-site; `none` for cross-site) |
+| `SSO_PIN_MIN_LENGTH` / `SSO_PIN_MAX_LENGTH` | `4` / `4` | PIN length bounds (4-digit numeric by default) |
+| `SSO_PIN_MAX_ATTEMPTS` / `SSO_PIN_LOCKOUT_MINUTES` | `5` / `15` | Lockout policy |
+| `SSO_IDLE_ENABLED` / `SSO_IDLE_TIMEOUT` | `true` / `15` | Server-side idle backstop |
+| `SSO_AUTO_CREATE_USER` | `false` | Auto-provision unknown users |
+| `SSO_SYNC_ROLES` | `false` | Sync roles from the SSO payload |
+
+### Same-site vs cross-site (CSRF)
+
+When the SPA and API share a site (e.g. `admin.td.uz` / `api.td.uz`), keep
+`SameSite=strict` — it blocks cross-site CSRF while same-site requests still
+carry the cookie. Because the origins differ, you still need CORS with
+credentials: `Access-Control-Allow-Credentials: true`, an explicit
+`Access-Control-Allow-Origin` (not `*`), and `withCredentials` on the frontend.
+Use `SameSite=none` **only** for genuinely cross-site deployments.
+
+## User model
+
+```php
+use Laravel\Passport\Contracts\OAuthenticatable;
+use Laravel\Passport\HasApiTokens;
+use Spatie\Permission\Traits\HasRoles;
+
+class User extends Authenticatable implements OAuthenticatable
+{
+    use HasApiTokens, HasRoles;
+    // columns used by the upsert: pinfl, stir, full_name, name, username
+}
+```
+
+## Testing
+
+```bash
+composer test      # Pest
+composer analyse   # PHPStan (larastan)
+composer format    # Pint
+```
+
+## License
+
+The MIT License (MIT). See [LICENSE](LICENSE).
