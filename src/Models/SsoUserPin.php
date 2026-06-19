@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Nurbekjummayev\LaravelTdcSsoClient\Models;
 
-use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
@@ -22,17 +21,21 @@ use Illuminate\Support\Facades\Date;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable([
-    'user_id',
-    'pin_hash',
-    'failed_attempts',
-    'locked_until',
-    'last_ip',
-    'last_user_agent',
-])]
 class SsoUserPin extends Model
 {
     protected $table = 'sso_user_pins';
+
+    /**
+     * @var list<string>
+     */
+    protected $fillable = [
+        'user_id',
+        'pin_hash',
+        'failed_attempts',
+        'locked_until',
+        'last_ip',
+        'last_user_agent',
+    ];
 
     /**
      * @return array<string, string>
