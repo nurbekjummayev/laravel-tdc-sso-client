@@ -12,14 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Two httpOnly cookies: short-lived `session_token` and 12h `unlock_token`.
   - Endpoints: `POST unlock`, `POST lock`, `POST set-pin`, `GET me` (now
     includes `has_pin`), `POST logout`.
-  - `sso_user_pins` table (bcrypt PIN, set/change timestamps, last IP / user
+  - `sso_lock_pins` table (bcrypt PIN, set/change timestamps, last IP / user
     agent, failed-attempt lockout) and `sso_unlock_tokens` table (rotating,
     reuse-detected, 12h absolute cap).
   - `AuthenticateSessionCookie` middleware (cookie → Bearer) and
     `EnforceIdleTimeout` server-side backstop.
   - `AuthEvent` events: `Lock`, `Unlock`, `PinSet`, `PinChanged`.
-- `php artisan sso:install` command — generates Passport keys and the personal
-  access client in one step (idempotent).
+- `php artisan sso:install` command — one-shot setup: publishes Passport's
+  migrations, runs migrate, generates Passport keys, and creates the personal
+  access client (idempotent; `--force` for non-interactive/prod).
 - Configurable outbound HTTP timeouts, authorize `scope`, cookie attributes,
   PIN policy, and idle timeout.
 - Test suite (Pest + Orchestra Testbench), PHPStan/Larastan, Pint, and CI.

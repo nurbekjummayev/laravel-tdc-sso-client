@@ -15,7 +15,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('sso_user_pins', function (Blueprint $table): void {
+        Schema::create('sso_lock_pins', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('user_id')->unique();
 
@@ -38,6 +38,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('sso_user_pins');
+        Schema::dropIfExists('sso_lock_pins');
     }
 };

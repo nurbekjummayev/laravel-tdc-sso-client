@@ -109,7 +109,10 @@ class SsoClient
      * This endpoint returns the identity data exactly once per token, so it
      * must be called immediately after the token exchange and persisted.
      *
-     * @return array{pinfl?: string, stir?: string, full_name?: string, raw?: mixed}
+     * The provider returns: pin, tin, full_name, first_name, last_name,
+     * father_name, raw.
+     *
+     * @return array{pin?: string, tin?: string, full_name?: string, first_name?: string, last_name?: string, father_name?: string, raw?: mixed}
      *
      * @throws RuntimeException
      */
@@ -135,7 +138,7 @@ class SsoClient
         // The SSO provider wraps the identity payload in the standard API
         // response envelope ({ msg, error, success, data }); unwrap the inner
         // `data` object, falling back to the whole body if it isn't enveloped.
-        /** @var array{pinfl?: string, stir?: string, full_name?: string, raw?: mixed} $data */
+        /** @var array{pin?: string, tin?: string, full_name?: string, first_name?: string, last_name?: string, father_name?: string, raw?: mixed} $data */
         $data = (isset($json['data']) && is_array($json['data'])) ? $json['data'] : $json;
 
         return $data;

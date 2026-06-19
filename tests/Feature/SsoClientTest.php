@@ -10,25 +10,25 @@ it('unwraps the enveloped userinfo payload', function (): void {
         'sso.example.test/oauth/userinfo' => Http::response([
             'msg' => 'OK',
             'success' => true,
-            'data' => ['pinfl' => '12345678901234', 'full_name' => 'Test User'],
+            'data' => ['pin' => '12345678901234', 'full_name' => 'Test User'],
         ]),
     ]);
 
     $info = app(SsoClient::class)->fetchUserInfo('sso-access-token');
 
     expect($info)
-        ->toHaveKey('pinfl', '12345678901234')
+        ->toHaveKey('pin', '12345678901234')
         ->toHaveKey('full_name', 'Test User');
 });
 
 it('falls back to the whole body when userinfo is not enveloped', function (): void {
     Http::fake([
-        'sso.example.test/oauth/userinfo' => Http::response(['pinfl' => '99999999999999']),
+        'sso.example.test/oauth/userinfo' => Http::response(['pin' => '99999999999999']),
     ]);
 
     $info = app(SsoClient::class)->fetchUserInfo('sso-access-token');
 
-    expect($info)->toHaveKey('pinfl', '99999999999999');
+    expect($info)->toHaveKey('pin', '99999999999999');
 });
 
 it('throws when the token exchange returns no access token', function (): void {

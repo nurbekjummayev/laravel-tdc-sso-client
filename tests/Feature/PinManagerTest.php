@@ -5,7 +5,7 @@ declare(strict_types=1);
 use Illuminate\Database\Eloquent\Model;
 use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\InvalidPinException;
 use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\PinLockedException;
-use Nurbekjummayev\LaravelTdcSsoClient\Models\SsoUserPin;
+use Nurbekjummayev\LaravelTdcSsoClient\Models\SsoLockPin;
 use Nurbekjummayev\LaravelTdcSsoClient\Services\PinManager;
 
 /**
@@ -29,7 +29,7 @@ function pinUser(int $id = 7): PinTestUser
 }
 
 beforeEach(function (): void {
-    (require __DIR__.'/../../database/migrations/2026_06_19_000001_create_sso_user_pins_table.php')->up();
+    (require __DIR__.'/../../database/migrations/2026_06_19_000001_create_sso_lock_pins_table.php')->up();
 });
 
 it('sets a PIN and reports has_pin', function (): void {
@@ -48,7 +48,7 @@ it('verifies the correct PIN', function (): void {
 
     $manager->verify(7, '1234'); // no exception
 
-    expect(SsoUserPin::query()->where('user_id', 7)->first()->failed_attempts)->toBe(0);
+    expect(SsoLockPin::query()->where('user_id', 7)->first()->failed_attempts)->toBe(0);
 });
 
 it('rejects a wrong PIN and counts the attempt', function (): void {
@@ -57,7 +57,7 @@ it('rejects a wrong PIN and counts the attempt', function (): void {
 
     expect(fn () => $manager->verify(7, '9999'))->toThrow(InvalidPinException::class);
 
-    expect(SsoUserPin::query()->where('user_id', 7)->first()->failed_attempts)->toBe(1);
+    expect(SsoLockPin::query()->where('user_id', 7)->first()->failed_attempts)->toBe(1);
 });
 
 it('locks the PIN after the configured number of failures', function (): void {

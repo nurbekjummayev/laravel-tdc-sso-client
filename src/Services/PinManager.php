@@ -10,10 +10,10 @@ use Illuminate\Support\Facades\Hash;
 use Nurbekjummayev\LaravelTdcSsoClient\Enums\AuthEvent;
 use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\InvalidPinException;
 use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\PinLockedException;
-use Nurbekjummayev\LaravelTdcSsoClient\Models\SsoUserPin;
+use Nurbekjummayev\LaravelTdcSsoClient\Models\SsoLockPin;
 
 /**
- * Manages the screen-lock PIN stored in the sso_user_pins table.
+ * Manages the screen-lock PIN stored in the sso_lock_pins table.
  *
  * The PIN is hashed with bcrypt (it is low entropy, so a slow hash is the right
  * choice). The table is the single source of truth for "does this user have a
@@ -30,7 +30,7 @@ class PinManager
      */
     public function has(int $userId): bool
     {
-        return SsoUserPin::query()->where('user_id', $userId)->exists();
+        return SsoLockPin::query()->where('user_id', $userId)->exists();
     }
 
     /**
@@ -52,7 +52,7 @@ class PinManager
         }
 
         $userId = (int) $user->getKey();
-        $existing = SsoUserPin::query()->where('user_id', $userId)->first();
+        $existing = SsoLockPin::query()->where('user_id', $userId)->first();
 
         if ($existing !== null) {
             if ($currentPin === null || ! Hash::check($currentPin, $existing->pin_hash)) {
@@ -62,7 +62,7 @@ class PinManager
 
         $request ??= request();
 
-        SsoUserPin::query()->updateOrCreate(
+        SsoLockPin::query()->updateOrCreate(
             ['user_id' => $userId],
             [
                 'pin_hash' => Hash::make($pin),
@@ -88,7 +88,7 @@ class PinManager
      */
     public function verify(int $userId, string $pin): void
     {
-        $record = SsoUserPin::query()->where('user_id', $userId)->first();
+        $record = SsoLockPin::query()->where('user_id', $userId)->first();
 
         if ($record === null) {
             throw new InvalidPinException('PIN o\'rnatilmagan.');
