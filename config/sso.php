@@ -34,9 +34,10 @@ return [
     |
     | The Eloquent model used to upsert the authenticated SSO subject. It must
     | implement Passport's OAuthenticatable contract (HasApiTokens trait) and
-    | expose the columns used by the upsert logic (pinfl, stir, full_name, name,
-    | username). Expressed as a STRING so the package never imports a concrete
-    | application model.
+    | expose the columns used by the upsert logic (pin, first_name, last_name,
+    | father_name, full_name, tin — each written only when the column exists, so
+    | legacy name/username columns are also handled). Expressed as a STRING so the
+    | package never imports a concrete application model.
     |
     */
 

@@ -62,7 +62,7 @@ class SsoService
      *
      * @return array{user: Model, session_token: string, unlock_token: string}
      *
-     * @throws RuntimeException when the state is invalid or userinfo lacks a pinfl
+     * @throws RuntimeException when the state is invalid or userinfo lacks a pin
      * @throws ForbiddenException when the user is unknown and auto-provisioning is disabled
      */
     public function handleCallback(string $code, string $state, ?Request $request = null): array
@@ -77,13 +77,13 @@ class SsoService
 
         // /oauth/userinfo is one-shot: call it immediately and persist.
         $userInfo = $this->ssoClient->fetchUserInfo($tokenData['access_token']);
-        $pinfl = isset($userInfo['pinfl']) ? (string) $userInfo['pinfl'] : '';
+        $pin = isset($userInfo['pin']) ? (string) $userInfo['pin'] : '';
 
-        if ($pinfl === '') {
-            throw new RuntimeException('SSO userinfo did not include a pinfl.');
+        if ($pin === '') {
+            throw new RuntimeException('SSO userinfo did not include a pin.');
         }
 
-        $user = $this->upsertUser($pinfl, $userInfo);
+        $user = $this->upsertUser($pin, $userInfo);
 
         $sessionToken = $this->mintSessionToken($user, $request);
         $unlockToken = $this->unlockTokens->issue((int) $user->getKey());
@@ -215,20 +215,23 @@ class SsoService
     }
 
     /**
-     * Create or update the local user keyed by the SSO pinfl.
+     * Create or update the local user keyed by the SSO pin (PINFL identifier).
+     *
+     * The SSO payload maps to the identity columns first_name, last_name,
+     * father_name, full_name and tin. Because the package works against a
+     * host-configured model, each attribute is written ONLY when the users table
+     * actually has that column — so the same package fits schemas that use, say,
+     * tin vs none, or the legacy name/username columns.
      *
      * @param  array<string, mixed>  $userInfo
      *
      * @throws ForbiddenException when the user is unknown and auto-provisioning is disabled
      */
-    private function upsertUser(string $pinfl, array $userInfo): Model
+    private function upsertUser(string $pin, array $userInfo): Model
     {
-        $fullName = isset($userInfo['full_name']) ? (string) $userInfo['full_name'] : null;
-        $stir = isset($userInfo['stir']) ? (string) $userInfo['stir'] : null;
-
         $modelClass = $this->userModel();
 
-        $user = $modelClass::query()->firstOrNew(['pinfl' => $pinfl]);
+        $user = $modelClass::query()->firstOrNew(['pin' => $pin]);
 
         $isNewUser = ! $user->exists;
 
@@ -236,17 +239,35 @@ class SsoService
             throw new ForbiddenException('Foydalanuvchi tizimda ro\'yxatdan o\'tmagan.');
         }
 
-        $user->setAttribute('full_name', $fullName);
-        $user->setAttribute('stir', $stir);
+        $columns = $this->userColumns($user);
 
-        // name is NOT NULL; fall back to the full name or the pinfl.
-        if (blank($user->getAttribute('name'))) {
-            $user->setAttribute('name', $fullName ?? $pinfl);
+        $firstName = $this->stringField($userInfo, 'first_name');
+        $lastName = $this->stringField($userInfo, 'last_name');
+        $fatherName = $this->stringField($userInfo, 'father_name');
+        $fullName = $this->stringField($userInfo, 'full_name')
+            ?? $this->composeFullName($lastName, $firstName, $fatherName);
+
+        $identity = [
+            'first_name' => $firstName,
+            'last_name' => $lastName,
+            'father_name' => $fatherName,
+            'full_name' => $fullName,
+            'tin' => $this->stringField($userInfo, 'tin'),
+        ];
+
+        foreach ($identity as $column => $value) {
+            if (in_array($column, $columns, true)) {
+                $user->setAttribute($column, $value);
+            }
         }
 
-        // username is unique; fall back to the pinfl for SSO-only users.
-        if (blank($user->getAttribute('username'))) {
-            $user->setAttribute('username', $pinfl);
+        // Legacy fallbacks for apps whose users table still uses name/username.
+        if (in_array('name', $columns, true) && blank($user->getAttribute('name'))) {
+            $user->setAttribute('name', $fullName ?? $pin);
+        }
+
+        if (in_array('username', $columns, true) && blank($user->getAttribute('username'))) {
+            $user->setAttribute('username', $pin);
         }
 
         $user->save();
@@ -259,6 +280,41 @@ class SsoService
         $this->syncRoles($user, $userInfo);
 
         return $user;
+    }
+
+    /**
+     * The column names of the configured user model's table.
+     *
+     * @return array<int, string>
+     */
+    private function userColumns(Model $user): array
+    {
+        return $user->getConnection()
+            ->getSchemaBuilder()
+            ->getColumnListing($user->getTable());
+    }
+
+    /**
+     * Read a string field from the SSO payload, or null when absent/empty.
+     *
+     * @param  array<string, mixed>  $userInfo
+     */
+    private function stringField(array $userInfo, string $key): ?string
+    {
+        return isset($userInfo[$key]) && $userInfo[$key] !== ''
+            ? (string) $userInfo[$key]
+            : null;
+    }
+
+    /**
+     * Build a display name from the parts when the payload omits full_name, so a
+     * NOT NULL full_name column is still satisfied.
+     */
+    private function composeFullName(?string $lastName, ?string $firstName, ?string $fatherName): ?string
+    {
+        $parts = array_filter([$lastName, $firstName, $fatherName], static fn (?string $p): bool => $p !== null && $p !== '');
+
+        return $parts === [] ? null : implode(' ', $parts);
     }
 
     /**

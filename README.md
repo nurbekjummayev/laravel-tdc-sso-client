@@ -150,7 +150,8 @@ use Spatie\Permission\Traits\HasRoles;
 class User extends Authenticatable implements OAuthenticatable
 {
     use HasApiTokens, HasRoles;
-    // columns used by the upsert: pinfl, stir, full_name, name, username
+    // columns written by the upsert (each only if present): pin (key),
+    // first_name, last_name, father_name, full_name, tin
 }
 ```
 
