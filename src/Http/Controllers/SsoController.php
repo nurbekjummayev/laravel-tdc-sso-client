@@ -184,9 +184,14 @@ readonly class SsoController
 
         return [
             'id' => $user->id,
-            'name' => $user->name,
-            'username' => $user->username,
-            'email' => $user->email ?? null,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'father_name' => $user->father_name ?? null,
+            'full_name' => $user->full_name,
+            'pin' => $user->pin,
+            'tin' => $user->tin ?? null,
+            'created_at' => $user->created_at,
+            'updated_at' => $user->updated_at,
             'role' => $role,
             'permissions' => $permissions,
             'has_pin' => $this->pinManager->has((int) $user->getKey()),
