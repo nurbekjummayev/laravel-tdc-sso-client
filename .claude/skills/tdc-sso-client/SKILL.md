@@ -58,6 +58,44 @@ request is authenticated by the unlock cookie + PIN, not `auth:api`. `me` carrie
 `has_pin` so the SPA chooses the **set-PIN** vs **unlock** screen with no extra request
 (there is deliberately no `check-pin` endpoint).
 
+### User response format
+
+The `callback`, `me`, and `unlock` endpoints return a `user` object:
+
+```json
+{
+  "user": {
+    "id": 1,
+    "first_name": "Nurbek",
+    "last_name": "Jummayev",
+    "father_name": "Abdullayevich",
+    "full_name": "Jummayev Nurbek Abdullayevich",
+    "pin": "12345678901234",
+    "tin": "123456789",
+    "created_at": "2026-06-23T10:00:00.000000Z",
+    "updated_at": "2026-06-23T10:00:00.000000Z",
+    "role": "admin",
+    "permissions": ["users.view", "users.edit"],
+    "has_pin": true
+  }
+}
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | int | User ID |
+| `first_name` | string | First name |
+| `last_name` | string | Last name |
+| `father_name` | string\|null | Father's name (nullable) |
+| `full_name` | string | Full name |
+| `pin` | string | PINFL (14 digits) |
+| `tin` | string\|null | TIN (9 digits, nullable) |
+| `created_at` | datetime | Created timestamp |
+| `updated_at` | datetime | Updated timestamp |
+| `role` | string\|null | First spatie role name |
+| `permissions` | array | All spatie permission names |
+| `has_pin` | bool | Whether a screen-lock PIN is set |
+
 ## Installation (private GitHub VCS repo)
 
 The package is **not on Packagist** (private). The host app pulls it via a VCS

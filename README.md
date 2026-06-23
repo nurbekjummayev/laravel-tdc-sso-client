@@ -89,6 +89,44 @@ is dead during a lock) and is gated by the unlock cookie + PIN.
 The `/me` response carries `has_pin` so the SPA knows whether to show the
 **set-PIN** screen or the **unlock** screen — no separate `check-pin` call.
 
+### User response format
+
+The `callback`, `me`, and `unlock` endpoints return a `user` object:
+
+```json
+{
+  "user": {
+    "id": 1,
+    "first_name": "Nurbek",
+    "last_name": "Jummayev",
+    "father_name": "Abdullayevich",
+    "full_name": "Jummayev Nurbek Abdullayevich",
+    "pin": "12345678901234",
+    "tin": "123456789",
+    "created_at": "2026-06-23T10:00:00.000000Z",
+    "updated_at": "2026-06-23T10:00:00.000000Z",
+    "role": "admin",
+    "permissions": ["users.view", "users.edit"],
+    "has_pin": true
+  }
+}
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | int | User ID |
+| `first_name` | string | First name |
+| `last_name` | string | Last name |
+| `father_name` | string\|null | Father's name (nullable) |
+| `full_name` | string | Full name |
+| `pin` | string | PINFL (14 digits) |
+| `tin` | string\|null | TIN (9 digits, nullable) |
+| `created_at` | datetime | Created timestamp |
+| `updated_at` | datetime | Updated timestamp |
+| `role` | string\|null | First spatie role name |
+| `permissions` | array | All spatie permission names |
+| `has_pin` | bool | Whether a screen-lock PIN is set |
+
 ## PIN
 
 The screen-lock PIN lives in its own `sso_lock_pins` table (never on the users
