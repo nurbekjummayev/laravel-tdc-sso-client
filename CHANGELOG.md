@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`sso.auth_log.retention_days`, default 180) and has a `user` relation.
 
 ### Fixed
+- The idle-timeout backstop never ran on Passport 13: `$user->token()` is an
+  `AccessToken` wrapper without `getKey()`, so activity was never tracked. The
+  token id is now read from `oauth_access_token_id` (new `CurrentToken`
+  helper), also used by lock/logout.
 - Soft-deleted users are found on callback and rejected, instead of being
   re-created (or hitting the unique pin index) when `auto_create_user=true`.
 - Unlock for a user that no longer exists returns 403 instead of a generic 401.
