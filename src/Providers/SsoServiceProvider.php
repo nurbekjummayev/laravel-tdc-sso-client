@@ -7,7 +7,10 @@ namespace Nurbekjummayev\LaravelTdcSsoClient\Providers;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 use Laravel\Passport\Passport;
+use Nurbekjummayev\LaravelTdcSsoClient\Auth\ActiveColumnGate;
 use Nurbekjummayev\LaravelTdcSsoClient\Console\InstallSsoCommand;
+use Nurbekjummayev\LaravelTdcSsoClient\Contracts\LoginGate;
+use Nurbekjummayev\LaravelTdcSsoClient\Http\Middleware\EnsureUserIsActive;
 use Nurbekjummayev\LaravelTdcSsoClient\Services\AuthLogger;
 use Nurbekjummayev\LaravelTdcSsoClient\Services\PinManager;
 use Nurbekjummayev\LaravelTdcSsoClient\Services\SsoClient;
@@ -51,6 +54,12 @@ class SsoServiceProvider extends PackageServiceProvider
         $this->app->singleton(PinManager::class);
         $this->app->singleton(SsoService::class);
         $this->app->singleton(SsoCookieFactory::class);
+
+        $this->app->singleton(LoginGate::class, function ($app): LoginGate {
+            $gate = config('sso.login_gate') ?: ActiveColumnGate::class;
+
+            return $app->make($gate);
+        });
     }
 
     /**
@@ -58,6 +67,8 @@ class SsoServiceProvider extends PackageServiceProvider
      */
     public function bootingPackage(): void
     {
+        Route::aliasMiddleware('sso.active', EnsureUserIsActive::class);
+
         $this->registerRoutes();
     }
 

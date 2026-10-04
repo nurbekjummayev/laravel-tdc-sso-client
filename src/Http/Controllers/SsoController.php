@@ -7,10 +7,12 @@ namespace Nurbekjummayev\LaravelTdcSsoClient\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use NurbekJummayev\ApiResponseHelper\Exceptions\ForbiddenException;
+use Illuminate\Http\Resources\Json\JsonResource;
 use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\InvalidPinException;
 use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\InvalidUnlockTokenException;
+use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\LoginDeniedException;
 use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\PinLockedException;
+use Nurbekjummayev\LaravelTdcSsoClient\Http\Resources\SsoUserResource;
 use Nurbekjummayev\LaravelTdcSsoClient\Services\PinManager;
 use Nurbekjummayev\LaravelTdcSsoClient\Services\SsoService;
 use Nurbekjummayev\LaravelTdcSsoClient\Support\SsoCookieFactory;
@@ -55,8 +57,8 @@ readonly class SsoController
 
         try {
             $result = $this->ssoService->handleCallback($code, $state, $request);
-        } catch (ForbiddenException $e) {
-            return forbiddenRequestResponse($e->getMessage());
+        } catch (LoginDeniedException $e) {
+            return $this->denied($e);
         } catch (Throwable $e) {
             report($e);
 
@@ -64,7 +66,7 @@ readonly class SsoController
         }
 
         return okResponse([
-            'user' => $this->transformUser($result['user']),
+            'user' => $this->transformUser($result['user'], $request),
         ], 'OK')
             ->withCookie($this->cookies->sessionCookie($result['session_token']))
             ->withCookie($this->cookies->unlockCookie($result['unlock_token']));
@@ -77,7 +79,7 @@ readonly class SsoController
     public function me(Request $request): JsonResponse
     {
         return okResponse([
-            'user' => $this->transformUser($request->user()),
+            'user' => $this->transformUser($request->user(), $request),
         ], 'OK');
     }
 
@@ -114,6 +116,8 @@ readonly class SsoController
             return unauthorizedRequestResponse($e->getMessage())
                 ->withCookie($this->cookies->forgetSession())
                 ->withCookie($this->cookies->forgetUnlock());
+        } catch (LoginDeniedException $e) {
+            return $this->denied($e);
         } catch (PinLockedException $e) {
             return forbiddenRequestResponse($e->getMessage());
         } catch (InvalidPinException $e) {
@@ -125,7 +129,7 @@ readonly class SsoController
         }
 
         return okResponse([
-            'user' => $this->transformUser($result['user']),
+            'user' => $this->transformUser($result['user'], $request),
         ], 'OK')
             ->withCookie($this->cookies->sessionCookie($result['session_token']))
             ->withCookie($this->cookies->unlockCookie($result['unlock_token']));
@@ -167,34 +171,29 @@ readonly class SsoController
     }
 
     /**
-     * Build the public user payload, including spatie roles/permissions and
-     * whether a PIN has been configured (so the SPA can decide set vs unlock).
+     * 403 with the denial `code`, clearing both cookies so the SPA cannot loop
+     * between lock and unlock with a dead session.
+     */
+    private function denied(LoginDeniedException $e): JsonResponse
+    {
+        return $e->render()
+            ->withCookie($this->cookies->forgetSession())
+            ->withCookie($this->cookies->forgetUnlock());
+    }
+
+    /**
+     * Build the public user payload through the configured `sso.me_resource`
+     * (default {@see SsoUserResource}).
      *
      * @return array<string, mixed>
      */
-    private function transformUser(mixed $user): array
+    private function transformUser(mixed $user, Request $request): array
     {
-        $permissions = method_exists($user, 'getAllPermissions')
-            ? $user->getAllPermissions()->pluck('name')->all()
-            : [];
+        $resourceClass = (string) config('sso.me_resource', SsoUserResource::class);
 
-        $role = method_exists($user, 'getRoleNames')
-            ? $user->getRoleNames()->first()
-            : null;
+        /** @var JsonResource $resource */
+        $resource = new $resourceClass($user);
 
-        return [
-            'id' => $user->id,
-            'first_name' => $user->first_name,
-            'last_name' => $user->last_name,
-            'father_name' => $user->father_name ?? null,
-            'full_name' => $user->full_name,
-            'pin' => $user->pin,
-            'tin' => $user->tin ?? null,
-            'created_at' => $user->created_at,
-            'updated_at' => $user->updated_at,
-            'role' => $role,
-            'permissions' => $permissions,
-            'has_pin' => $this->pinManager->has((int) $user->getKey()),
-        ];
+        return $resource->resolve($request);
     }
 }

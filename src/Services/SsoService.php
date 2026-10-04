@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Nurbekjummayev\LaravelTdcSsoClient\Services;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -12,10 +14,11 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Laravel\Passport\Contracts\OAuthenticatable;
 use Laravel\Passport\PersonalAccessTokenResult;
-use NurbekJummayev\ApiResponseHelper\Exceptions\ForbiddenException;
+use Nurbekjummayev\LaravelTdcSsoClient\Contracts\LoginGate;
 use Nurbekjummayev\LaravelTdcSsoClient\Enums\AuthEvent;
 use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\InvalidPinException;
 use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\InvalidUnlockTokenException;
+use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\LoginDeniedException;
 use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\PinLockedException;
 use RuntimeException;
 use Spatie\Permission\Models\Permission;
@@ -37,6 +40,7 @@ class SsoService
         private readonly AuthLogger $authLogger,
         private readonly UnlockTokenManager $unlockTokens,
         private readonly PinManager $pins,
+        private readonly LoginGate $gate,
     ) {}
 
     /**
@@ -63,7 +67,8 @@ class SsoService
      * @return array{user: Model, session_token: string, unlock_token: string}
      *
      * @throws RuntimeException when the state is invalid or userinfo lacks a pin
-     * @throws ForbiddenException when the user is unknown and auto-provisioning is disabled
+     * @throws LoginDeniedException when the user is unknown (and auto-provisioning
+     *                              is disabled), soft-deleted, or rejected by the gate
      */
     public function handleCallback(string $code, string $state, ?Request $request = null): array
     {
@@ -83,7 +88,9 @@ class SsoService
             throw new RuntimeException('SSO userinfo did not include a pin.');
         }
 
-        $user = $this->upsertUser($pin, $userInfo);
+        $user = $this->upsertUser($pin, $userInfo, $request);
+
+        $this->ensureCanLogin($user, $request);
 
         $sessionToken = $this->mintSessionToken($user, $request);
         $unlockToken = $this->unlockTokens->issue((int) $user->getKey());
@@ -104,6 +111,7 @@ class SsoService
      * @throws InvalidUnlockTokenException
      * @throws InvalidPinException
      * @throws PinLockedException
+     * @throws LoginDeniedException when the user is gone or rejected by the gate
      */
     public function unlock(string $unlockToken, string $pin, ?Request $request = null): array
     {
@@ -113,14 +121,25 @@ class SsoService
         $unlockRecord = $this->unlockTokens->verify($unlockToken);
         $userId = (int) $unlockRecord->user_id;
 
+        // Gate BEFORE the PIN: a blocked user must not burn PIN attempts or learn
+        // anything from them, and their unlock chain is killed on the spot.
+        $user = $this->findUser($userId);
+
+        if ($user === null) {
+            $this->unlockTokens->revokeAllForUser($userId);
+            $this->recordDenied($userId, LoginDeniedException::INACTIVE, $request);
+
+            throw LoginDeniedException::inactive();
+        }
+
+        $this->ensureCanLogin($user, $request);
+
         // Verify the PIN. A wrong PIN throws here and the unlock token is left
         // intact, so the SPA can retry with the same cookie.
         $this->pins->verify($userId, $pin);
 
         // PIN ok — now rotate the unlock token and mint a fresh session.
         $newUnlockToken = $this->unlockTokens->rotate($unlockRecord);
-
-        $user = $this->resolveUser($userId);
 
         $sessionToken = $this->mintSessionToken($user, $request, AuthEvent::Unlock);
 
@@ -155,6 +174,56 @@ class SsoService
     }
 
     /**
+     * Whether the user may hold an SSO session: not soft-deleted and allowed by
+     * the configured {@see LoginGate}.
+     */
+    public function canLogin(Model $user): bool
+    {
+        if (method_exists($user, 'trashed') && $user->trashed()) {
+            return false;
+        }
+
+        return $this->gate->allows($user);
+    }
+
+    /**
+     * Throw (after revoking every credential and logging) when the user may not
+     * hold an SSO session.
+     *
+     * @throws LoginDeniedException
+     */
+    public function ensureCanLogin(Model $user, ?Request $request = null): void
+    {
+        if ($this->canLogin($user)) {
+            return;
+        }
+
+        $this->revokeAll($user);
+        $this->recordDenied((int) $user->getKey(), LoginDeniedException::INACTIVE, $request);
+
+        throw LoginDeniedException::inactive();
+    }
+
+    /**
+     * Revoke every credential the user holds: Passport access tokens and unlock
+     * tokens. Call it when a user is deactivated or deleted.
+     *
+     * @param  bool  $onlySso  limit Passport revocation to tokens named
+     *                         `sso.token_name`, keeping integration tokens alive
+     */
+    public function revokeAll(Model $user, bool $onlySso = false): void
+    {
+        if (method_exists($user, 'tokens')) {
+            $user->tokens()
+                ->where('revoked', false)
+                ->when($onlySso, fn (Builder $query) => $query->where('name', $this->tokenName()))
+                ->update(['revoked' => true]);
+        }
+
+        $this->unlockTokens->revokeAllForUser((int) $user->getKey());
+    }
+
+    /**
      * Resolve a user by primary key using the configured model.
      */
     public function resolveUser(int $userId): Model
@@ -165,6 +234,23 @@ class SsoService
         $user = $modelClass::query()->findOrFail($userId);
 
         return $user;
+    }
+
+    /**
+     * Find a user by primary key, including soft-deleted ones so they can be
+     * rejected explicitly instead of surfacing as a 404.
+     */
+    private function findUser(int $userId): ?Model
+    {
+        /** @var Model|null $user */
+        $user = $this->userQuery()->find($userId);
+
+        return $user;
+    }
+
+    private function recordDenied(?int $userId, string $reason, ?Request $request): void
+    {
+        $this->authLogger->record(AuthEvent::LoginDenied, $userId, $request, null, ['reason' => $reason]);
     }
 
     /**
@@ -223,20 +309,28 @@ class SsoService
      * actually has that column — so the same package fits schemas that use, say,
      * tin vs none, or the legacy name/username columns.
      *
+     * Soft-deleted users are looked up too and rejected: otherwise
+     * `firstOrNew` would miss them and, with auto-provisioning on, re-create the
+     * account (or hit the unique pin index).
+     *
      * @param  array<string, mixed>  $userInfo
      *
-     * @throws ForbiddenException when the user is unknown and auto-provisioning is disabled
+     * @throws LoginDeniedException when the user is unknown (and auto-provisioning is disabled) or soft-deleted
      */
-    private function upsertUser(string $pin, array $userInfo): Model
+    private function upsertUser(string $pin, array $userInfo, ?Request $request): Model
     {
-        $modelClass = $this->userModel();
-
-        $user = $modelClass::query()->firstOrNew(['pin' => $pin]);
+        $user = $this->userQuery()->firstOrNew(['pin' => $pin]);
 
         $isNewUser = ! $user->exists;
 
         if ($isNewUser && ! (bool) config('sso.auto_create_user', false)) {
-            throw new ForbiddenException('Foydalanuvchi tizimda ro\'yxatdan o\'tmagan.');
+            $this->recordDenied(null, LoginDeniedException::NOT_REGISTERED, $request);
+
+            throw LoginDeniedException::notRegistered();
+        }
+
+        if (method_exists($user, 'trashed') && $user->trashed()) {
+            $this->ensureCanLogin($user, $request);
         }
 
         $columns = $this->userColumns($user);
@@ -274,6 +368,9 @@ class SsoService
 
         // Default roles/permissions are applied ONLY to freshly provisioned users.
         if ($isNewUser) {
+            // Load DB defaults (e.g. is_active) so the login gate sees them.
+            $user->refresh();
+
             $this->assignDefaultRolesAndPermissions($user);
         }
 
@@ -445,6 +542,23 @@ class SsoService
     private function tokenName(): string
     {
         return (string) config('sso.token_name', 'spa');
+    }
+
+    /**
+     * A query on the configured user model that also sees soft-deleted rows.
+     *
+     * @return Builder<Model>
+     */
+    private function userQuery(): Builder
+    {
+        $modelClass = $this->userModel();
+
+        if (in_array(SoftDeletes::class, class_uses_recursive($modelClass), true)) {
+            /** @phpstan-ignore-next-line staticMethod.notFound */
+            return $modelClass::withTrashed();
+        }
+
+        return $modelClass::query();
     }
 
     /**
