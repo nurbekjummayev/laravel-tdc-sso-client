@@ -81,9 +81,11 @@ Registered under the `api/auth/sso` prefix (configurable via `sso.routes.prefix`
 | `POST` | `set-pin` | session cookie | Set/change the PIN — body `pin` + `pin_confirmation` (+ `current_pin` to change) |
 | `POST` | `lock` | session cookie | Revoke the session token, clear its cookie |
 | `POST` | `logout` | session cookie | Revoke session + unlock tokens, clear both cookies |
+| `GET` | `logs/mine` | session cookie | Caller's own auth history (off by default, `SSO_LOGS_MINE_ENABLED`) |
+| `GET` | `logs` | session cookie + `sso_logs.list` | Every user's auth history (off by default, `SSO_LOGS_ADMIN_ENABLED`) |
 
-`me`, `set-pin`, `lock`, `logout` run behind: cookie→Bearer injection →
-`auth:api` → idle backstop. `unlock` is intentionally public (the session token
+The authenticated routes run behind: cookie→Bearer injection → `auth:api` →
+login gate (`sso.active`) → idle backstop. `unlock` is intentionally public (the session token
 is dead during a lock) and is gated by the unlock cookie + PIN.
 
 The `/me` response carries `has_pin` so the SPA knows whether to show the
@@ -127,6 +129,86 @@ The `callback`, `me`, and `unlock` endpoints return a `user` object:
 | `permissions` | array | All spatie permission names |
 | `has_pin` | bool | Whether a screen-lock PIN is set |
 
+Customise the payload with `sso.me_resource` — extend `SsoUserResource` and
+keep `has_pin` / `permissions` from the parent:
+
+```php
+use Nurbekjummayev\LaravelTdcSsoClient\Http\Resources\SsoUserResource;
+
+class MeResource extends SsoUserResource
+{
+    public function toArray(Request $request): array
+    {
+        $this->resource->loadMissing('photo');
+
+        return [
+            ...parent::toArray($request),
+            'email' => $this->resource->email,
+            'photo' => $this->resource->photo?->url,
+        ];
+    }
+}
+```
+
+## Login gate (inactive / deleted users)
+
+Set `SSO_ACTIVE_COLUMN=is_active` and a user whose column is falsy cannot hold
+a session. The gate runs:
+
+- on **callback** — after the upsert, before any token is minted;
+- on **unlock** — before the PIN is checked (no PIN attempts are burned);
+- on **every authenticated request** — through the `sso.active` middleware.
+
+A rejected user loses every Passport and unlock token, both cookies are
+cleared, an `login_denied` event is logged, and the response is a 403 with a
+machine-readable code:
+
+```json
+{ "msg": "...", "success": false, "data": null, "code": "account_inactive" }
+```
+
+`code` is `account_inactive` (gate / soft-deleted) or `account_not_registered`
+(unknown user with `auto_create_user=false`). Soft-deleted users are always
+rejected and never re-created.
+
+Add the middleware to your own API routes, after `auth:api`:
+
+```php
+Route::middleware(['auth:api', 'sso.active'])->group(...);
+```
+
+For a custom rule, bind a class implementing
+`Nurbekjummayev\LaravelTdcSsoClient\Contracts\LoginGate` in `sso.login_gate`
+(a class, not a closure, so `config:cache` keeps working).
+
+When you deactivate or delete a user, kill their sessions immediately:
+
+```php
+app(SsoService::class)->revokeAll($user);                 // all Passport + unlock tokens
+app(SsoService::class)->revokeAll($user, onlySso: true);  // keep non-SSO tokens
+```
+
+## Auth logs
+
+Every event (`login`, `logout`, `lock`, `unlock`, `pin_set`, `pin_changed`,
+`login_denied`) is stored in `sso_auth_logs` with IP, user agent and a `meta`
+json column. To fill `meta` (geolocation, device, ...), set
+`sso.auth_log.meta_resolver` to a class implementing `AuthLogMetaResolver`.
+
+`GET logs` (admin) and `GET logs/mine` accept `event` (string or array),
+`from` / `to` (dates, inclusive), `per_page` (max 100) and — admin only —
+`user_id`. Results are paginated, newest first.
+
+Rows older than `sso.auth_log.retention_days` (default 180, `null` = keep all)
+are pruned by `model:prune`. Laravel only discovers models under `app/`, so
+schedule it explicitly:
+
+```php
+Schedule::command('model:prune', [
+    '--model' => [\Nurbekjummayev\LaravelTdcSsoClient\Models\SsoAuthLog::class],
+])->daily();
+```
+
 ## PIN
 
 The screen-lock PIN lives in its own `sso_lock_pins` table (never on the users
@@ -169,6 +251,10 @@ Key environment variables (full list documented in `config/sso.php`):
 | `SSO_IDLE_ENABLED` / `SSO_IDLE_TIMEOUT` | `true` / `15` | Server-side idle backstop |
 | `SSO_AUTO_CREATE_USER` | `false` | Auto-provision unknown users |
 | `SSO_SYNC_ROLES` | `false` | Sync roles from the SSO payload |
+| `SSO_ACTIVE_COLUMN` | _(null)_ | Boolean column checked by the login gate (null = off) |
+| `SSO_LOGS_MINE_ENABLED` / `SSO_LOGS_ADMIN_ENABLED` | `false` / `false` | Auth-log read endpoints |
+| `SSO_AUTH_LOG_PERMISSION` | `sso_logs.list` | Permission for `GET logs` |
+| `SSO_AUTH_LOG_RETENTION_DAYS` | `180` | Prune window for `sso_auth_logs` |
 
 ### Same-site vs cross-site (CSRF)
 

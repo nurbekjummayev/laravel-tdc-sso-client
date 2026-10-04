@@ -1,6 +1,8 @@
 <?php
 
 declare(strict_types=1);
+use Nurbekjummayev\LaravelTdcSsoClient\Auth\ActiveColumnGate;
+use Nurbekjummayev\LaravelTdcSsoClient\Http\Resources\SsoUserResource;
 
 return [
 
@@ -42,6 +44,41 @@ return [
     */
 
     'user_model' => env('SSO_USER_MODEL', 'App\\Models\\User'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Login Gate
+    |--------------------------------------------------------------------------
+    |
+    | Decides whether a user may hold an SSO session. Checked on callback
+    | (before a token is minted), on unlock (before the PIN) and on every
+    | authenticated request through the `sso.active` middleware. A rejected user
+    | loses all Passport + unlock tokens and gets a 403 with
+    | `code: account_inactive`. Soft-deleted users are always rejected.
+    |
+    | `login_gate` is a class-string implementing
+    | Nurbekjummayev\LaravelTdcSsoClient\Contracts\LoginGate (a class, not a
+    | closure, so `config:cache` keeps working). The default gate allows the
+    | user when `active_column` is truthy; a null column disables the check.
+    |
+    */
+
+    'login_gate' => ActiveColumnGate::class,
+
+    'active_column' => env('SSO_ACTIVE_COLUMN'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | User Resource
+    |--------------------------------------------------------------------------
+    |
+    | JsonResource used for the `user` payload of callback, unlock and me.
+    | Extend Nurbekjummayev\LaravelTdcSsoClient\Http\Resources\SsoUserResource
+    | to add host fields (email, photo, ...) while keeping has_pin/permissions.
+    |
+    */
+
+    'me_resource' => SsoUserResource::class,
 
     /*
     |--------------------------------------------------------------------------
@@ -158,6 +195,16 @@ return [
         | runs. Uses the Passport `api` guard by default.
         */
         'auth_middleware' => env('SSO_AUTH_MIDDLEWARE', 'auth:api'),
+
+        /*
+        | Read endpoints over sso_auth_logs (both off by default):
+        |   mine  -> GET logs/mine, the caller's own history
+        |   admin -> GET logs, every user, behind `sso.auth_log.permission`
+        */
+        'logs' => [
+            'mine' => (bool) env('SSO_LOGS_MINE_ENABLED', false),
+            'admin' => (bool) env('SSO_LOGS_ADMIN_ENABLED', false),
+        ],
     ],
 
     /*
@@ -224,13 +271,24 @@ return [
     | Authentication Logging
     |--------------------------------------------------------------------------
     |
-    | Persist auth events (login, logout, lock, unlock, pin_set, pin_changed) to
-    | the `sso_auth_logs` table with the IP address and user agent.
+    | Persist auth events (login, logout, lock, unlock, pin_set, pin_changed,
+    | login_denied) to the `sso_auth_logs` table with the IP address and user
+    | agent.
+    |
+    | meta_resolver   class-string implementing
+    |                 Nurbekjummayev\LaravelTdcSsoClient\Contracts\AuthLogMetaResolver;
+    |                 its array is stored in the `meta` json column.
+    | retention_days  rows older than this are removed by `model:prune`
+    |                 (schedule it with --model for SsoAuthLog); null keeps all.
+    | permission      required by the admin `GET logs` endpoint.
     |
     */
 
     'auth_log' => [
         'enabled' => (bool) env('SSO_AUTH_LOG_ENABLED', true),
+        'meta_resolver' => null,
+        'retention_days' => env('SSO_AUTH_LOG_RETENTION_DAYS', 180),
+        'permission' => env('SSO_AUTH_LOG_PERMISSION', 'sso_logs.list'),
     ],
 
     /*

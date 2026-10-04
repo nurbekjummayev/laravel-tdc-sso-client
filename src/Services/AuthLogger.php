@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nurbekjummayev\LaravelTdcSsoClient\Services;
 
 use Illuminate\Http\Request;
+use Nurbekjummayev\LaravelTdcSsoClient\Contracts\AuthLogMetaResolver;
 use Nurbekjummayev\LaravelTdcSsoClient\Enums\AuthEvent;
 use Nurbekjummayev\LaravelTdcSsoClient\Models\SsoAuthLog;
 
@@ -22,8 +23,10 @@ class AuthLogger
      * @param  string|null  $tokenId  The Passport access token id involved in
      *                                the event (minted on login / revoked on
      *                                logout); null when no token applies.
+     * @param  array<string, mixed>  $meta  Event-specific data, merged over the
+     *                                      `sso.auth_log.meta_resolver` output.
      */
-    public function record(AuthEvent $event, ?int $userId, ?Request $request = null, ?string $tokenId = null): void
+    public function record(AuthEvent $event, ?int $userId, ?Request $request = null, ?string $tokenId = null, array $meta = []): void
     {
         if (! (bool) config('sso.auth_log.enabled', true)) {
             return;
@@ -37,6 +40,25 @@ class AuthLogger
             'event' => $event->value,
             'ip_address' => $request->ip(),
             'user_agent' => substr((string) $request->userAgent(), 0, 1000),
+            'meta' => $this->meta($event, $userId, $request, $meta) ?: null,
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $meta
+     * @return array<string, mixed>
+     */
+    private function meta(AuthEvent $event, ?int $userId, Request $request, array $meta): array
+    {
+        $resolver = config('sso.auth_log.meta_resolver');
+
+        if (! is_string($resolver) || $resolver === '') {
+            return $meta;
+        }
+
+        /** @var AuthLogMetaResolver $instance */
+        $instance = app($resolver);
+
+        return array_merge($instance->resolve($event, $userId, $request), $meta);
     }
 }

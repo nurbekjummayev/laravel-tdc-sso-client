@@ -15,4 +15,5 @@ enum AuthEvent: string
     case Unlock = 'unlock';
     case PinSet = 'pin_set';
     case PinChanged = 'pin_changed';
+    case LoginDenied = 'login_denied';
 }

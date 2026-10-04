@@ -8,6 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Login gate** for inactive / deleted users: `sso.login_gate` (class-string,
+  `LoginGate` contract) with the default `ActiveColumnGate` driven by
+  `sso.active_column` (null = off). Checked on callback (before minting), on
+  unlock (before the PIN) and per request via the new `sso.active` middleware.
+  Rejections revoke all tokens, clear both cookies, log `login_denied`, and
+  return 403 with `code: account_inactive | account_not_registered`.
+- `SsoService::revokeAll($user, $onlySso = false)` — revoke every Passport and
+  unlock token for a user (call on deactivation / deletion).
+- `sso.me_resource` — override the `user` payload of callback / unlock / me by
+  extending `SsoUserResource`.
+- Auth-log read endpoints `GET logs/mine` and `GET logs` (permission
+  `sso_logs.list`), with event / date / user filters and pagination; both off
+  by default.
+- `meta` json column on `sso_auth_logs` (new migration) filled by
+  `sso.auth_log.meta_resolver`; `SsoAuthLog` is `Prunable`
+  (`sso.auth_log.retention_days`, default 180) and has a `user` relation.
+
+### Fixed
+- Soft-deleted users are found on callback and rejected, instead of being
+  re-created (or hitting the unique pin index) when `auto_create_user=true`.
+- Unlock for a user that no longer exists returns 403 instead of a generic 401.
+- Freshly auto-provisioned users are refreshed so DB defaults are visible.
+
+### Changed
+- An unknown user on callback now throws `LoginDeniedException` (a subclass of
+  `ForbiddenException`, so existing catches still work) and the 403 carries
+  `code: account_not_registered` and clears the cookies.
+
+### Added
 - **Cookie-based session + screen-lock + PIN unlock flow:**
   - Two httpOnly cookies: short-lived `session_token` and 12h `unlock_token`.
   - Endpoints: `POST unlock`, `POST lock`, `POST set-pin`, `GET me` (now
