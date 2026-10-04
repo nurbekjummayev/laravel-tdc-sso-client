@@ -26,12 +26,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`sso.auth_log.retention_days`, default 180) and has a `user` relation.
 
 ### Fixed
+- The idle-timeout backstop never ran on Passport 13: `$user->token()` is an
+  `AccessToken` wrapper without `getKey()`, so activity was never tracked. The
+  token id is now read from `oauth_access_token_id` (new `CurrentToken`
+  helper), also used by lock/logout.
 - Soft-deleted users are found on callback and rejected, instead of being
   re-created (or hitting the unique pin index) when `auto_create_user=true`.
 - Unlock for a user that no longer exists returns 403 instead of a generic 401.
 - Freshly auto-provisioned users are refreshed so DB defaults are visible.
 
 ### Changed
+- **PHP 8.4+ is now required** (was 8.2+).
+- Declared the `illuminate/validation` dependency used by the auth-log
+  endpoints.
+- Dev tooling: Pest `^4.0|^5.0` (Pest 5 on Laravel 13, Pest 4 on Laravel 12);
+  CI now tests Laravel 12 and 13 on PHP 8.4. Lock file refreshed (Laravel
+  13.34, Passport 13.8, spatie/laravel-permission 8.3).
 - An unknown user on callback now throws `LoginDeniedException` (a subclass of
   `ForbiddenException`, so existing catches still work) and the 403 carries
   `code: account_not_registered` and clears the cookies.

@@ -20,6 +20,7 @@ use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\InvalidPinException;
 use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\InvalidUnlockTokenException;
 use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\LoginDeniedException;
 use Nurbekjummayev\LaravelTdcSsoClient\Exceptions\PinLockedException;
+use Nurbekjummayev\LaravelTdcSsoClient\Support\CurrentToken;
 use RuntimeException;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -283,21 +284,11 @@ class SsoService
      */
     private function revokeCurrentSessionToken(Model $user): ?string
     {
-        if (! method_exists($user, 'token')) {
-            return null;
-        }
+        $token = CurrentToken::of($user);
 
-        $token = $user->token();
+        CurrentToken::revoke($token);
 
-        if ($token === null) {
-            return null;
-        }
-
-        $tokenId = (string) $token->getKey();
-
-        $token->revoke();
-
-        return $tokenId;
+        return CurrentToken::id($token);
     }
 
     /**

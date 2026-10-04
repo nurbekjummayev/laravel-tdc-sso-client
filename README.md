@@ -18,7 +18,7 @@ SSO provider token to the browser. It issues its own session to the SPA as two
 
 ## Requirements
 
-- PHP 8.2+ · Laravel 12/13
+- PHP 8.4+ · Laravel 12/13
 - [laravel/passport](https://laravel.com/docs/passport) (user model must implement `OAuthenticatable` / use `HasApiTokens`)
 - [spatie/laravel-permission](https://spatie.be/docs/laravel-permission)
 

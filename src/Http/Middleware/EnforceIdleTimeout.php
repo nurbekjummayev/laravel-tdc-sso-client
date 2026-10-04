@@ -7,6 +7,7 @@ namespace Nurbekjummayev\LaravelTdcSsoClient\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Nurbekjummayev\LaravelTdcSsoClient\Support\CurrentToken;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -25,29 +26,22 @@ class EnforceIdleTimeout
             return $next($request);
         }
 
-        $user = $request->user();
+        $token = CurrentToken::of($request->user());
+        $tokenId = CurrentToken::id($token);
 
-        if ($user === null || ! method_exists($user, 'token')) {
-            return $next($request);
-        }
-
-        $token = $user->token();
-
-        if ($token === null || ! method_exists($token, 'getKey')) {
+        if ($tokenId === null) {
             return $next($request);
         }
 
         $timeout = (int) config('sso.idle.timeout', 15) * 60;
-        $key = 'sso:activity:'.$token->getKey();
+        $key = 'sso:activity:'.$tokenId;
         $now = $request->server('REQUEST_TIME', null);
         $now = is_numeric($now) ? (int) $now : strtotime('now');
 
         $last = Cache::get($key);
 
         if (is_numeric($last) && ($now - (int) $last) > $timeout) {
-            if (method_exists($token, 'revoke')) {
-                $token->revoke();
-            }
+            CurrentToken::revoke($token);
 
             Cache::forget($key);
 
